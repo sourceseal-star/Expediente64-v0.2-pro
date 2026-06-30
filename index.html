@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>EXPEDIENTE 64 — Sourceseal Global Protocol</title>
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#d4af37" />
+<meta name="description" content="Juego de investigación y misterio en primera persona. Conecta pistas, infiltra y descubre la verdad." />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black" />
+<meta name="apple-mobile-web-app-title" content="Expediente 64" />
+<meta property="og:title" content="EXPEDIENTE 64 — Sourceseal Global Protocol" />
+<meta property="og:description" content="Investiga. Deduce. Infiltra. Interroga." />
+<meta property="og:type" content="website" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
+  #game-canvas { display: block; width: 100%; height: 100%; }
+
+  /* ===== HUD ===== */
+  #hud { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; color: #d4af37; }
+  #top-bar {
+    position: absolute; top: 0; left: 0; width: 100%;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 16px 20px; background: linear-gradient(to bottom, rgba(0,0,0,0.85), transparent);
+  }
+  #level-label { font-size: 13px; letter-spacing: 2px; opacity: 0.85; }
+  #level-name { font-size: 16px; font-weight: bold; letter-spacing: 1px; }
+  #evidence-counter {
+    display: flex; align-items: center; gap: 8px; font-size: 13px;
+    border: 1px solid rgba(212,175,55,0.4); padding: 6px 12px; border-radius: 4px;
+    background: rgba(0,0,0,0.4);
+  }
+  #seal-icon { width: 16px; height: 16px; border: 2px solid #d4af37; border-radius: 50%; }
+  #objective-bar {
+    position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.6); border: 1px solid rgba(212,175,55,0.4);
+    padding: 10px 22px; border-radius: 4px; font-size: 13px; letter-spacing: 1px;
+    max-width: 90%; text-align: center;
+  }
+  #interact-prompt {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, 60px);
+    background: rgba(0,0,0,0.75); border: 1px solid #d4af37; color: #fff;
+    padding: 8px 16px; border-radius: 4px; font-size: 13px; display: none; pointer-events: none;
+  }
+
+  /* ===== Stealth detection meter ===== */
+  #detection-meter {
+    position: absolute; top: 90px; left: 50%; transform: translateX(-50%);
+    width: 200px; height: 8px; background: rgba(0,0,0,0.5); border: 1px solid #444;
+    border-radius: 4px; display: none; overflow: hidden;
+  }
+  #detection-fill { width: 0%; height: 100%; background: #4ade80; transition: width 0.15s linear, background 0.3s; }
+  #detection-label {
+    position: absolute; top: 102px; left: 50%; transform: translateX(-50%);
+    font-size: 10px; color: #aaa; letter-spacing: 1px; display: none;
+  }
+  #detected-flash {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(255,0,0,0.25); z-index: 60; display: none; pointer-events: none;
+  }
+  #detected-banner {
+    position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%);
+    color: #ff5555; font-size: 22px; font-weight: bold; letter-spacing: 3px;
+    z-index: 61; display: none; text-shadow: 0 0 12px rgba(255,0,0,0.8);
+  }
+
+  /* ===== Device overlay (computer/phone) ===== */
+  #device-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.92); z-index: 50; display: none;
+    align-items: center; justify-content: center; pointer-events: all;
+  }
+  #device-frame {
+    width: 92%; max-width: 480px; height: 80%; max-height: 760px;
+    background: #0a0a0a; border: 2px solid #d4af37; border-radius: 8px;
+    display: flex; flex-direction: column; overflow: hidden;
+    box-shadow: 0 0 60px rgba(212,175,55,0.15);
+  }
+  #device-header {
+    padding: 14px 18px; border-bottom: 1px solid rgba(212,175,55,0.3);
+    display: flex; justify-content: space-between; align-items: center;
+    color: #d4af37; font-size: 13px; letter-spacing: 1px;
+  }
+  #device-close {
+    cursor: pointer; pointer-events: all; color: #fff; font-size: 18px;
+    width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+    border: 1px solid rgba(255,255,255,0.3); border-radius: 4px;
+  }
+  #device-body { flex: 1; overflow-y: auto; padding: 16px; color: #ddd; }
+  .file-item {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(212,175,55,0.2);
+    border-radius: 6px; padding: 12px 14px; margin-bottom: 10px; cursor: pointer; pointer-events: all; transition: 0.2s;
+  }
+  .file-item:hover { background: rgba(212,175,55,0.1); border-color: #d4af37; }
+  .file-item.verified { border-color: #4ade80; }
+  .file-title { font-size: 13px; color: #fff; font-weight: bold; margin-bottom: 4px; }
+  .file-meta { font-size: 11px; color: #999; }
+  .file-detail { font-size: 12px; color: #ccc; margin-top: 8px; line-height: 1.5; display: none; }
+  .file-item.open .file-detail { display: block; }
+  .file-tag { display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 10px; margin-top: 8px; letter-spacing: 0.5px; }
+  .tag-doc { background: rgba(96,165,250,0.2); color: #60a5fa; }
+  .tag-audio { background: rgba(192,132,252,0.2); color: #c084fc; }
+  .tag-video { background: rgba(248,113,113,0.2); color: #f87171; }
+  .verify-btn {
+    margin-top: 10px; background: transparent; border: 1px solid #d4af37; color: #d4af37;
+    padding: 5px 12px; border-radius: 4px; font-size: 11px; cursor: pointer; pointer-events: all;
+    letter-spacing: 1px; font-family: inherit;
+  }
+  .verify-btn:hover { background: rgba(212,175,55,0.15); }
+  .verify-btn:disabled { opacity: 0.5; cursor: default; border-color: #4ade80; color: #4ade80; }
+
+  /* ===== Deduction board overlay ===== */
+  #deduction-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(5,5,8,0.96); z-index: 55; display: none;
+    flex-direction: column; align-items: center; padding: 24px 16px; pointer-events: all;
+    overflow-y: auto;
+  }
+  #deduction-title { color: #d4af37; font-size: 15px; letter-spacing: 1px; margin-bottom: 6px; text-align: center; }
+  #deduction-progress { color: #888; font-size: 12px; margin-bottom: 16px; }
+  #deduction-clues {
+    display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 420px; margin-bottom: 16px;
+  }
+  .clue-node {
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(212,175,55,0.3); color: #ddd;
+    padding: 12px 14px; border-radius: 6px; font-size: 12px; cursor: pointer; pointer-events: all; transition: 0.15s;
+  }
+  .clue-node:hover { border-color: #d4af37; }
+  .clue-node.selected { border-color: #d4af37; background: rgba(212,175,55,0.15); }
+  .clue-node.connected { border-color: #4ade80; color: #4ade80; }
+  #deduction-connections-list { width: 100%; max-width: 420px; margin-bottom: 14px; }
+  .connection-line-item { font-size: 11px; color: #4ade80; margin-bottom: 4px; }
+  #deduction-feedback { font-size: 12px; height: 18px; margin-bottom: 10px; }
+  .feedback-success { color: #4ade80; }
+  .feedback-fail { color: #f87171; }
+  #deduction-conclusion {
+    display: none; color: #d4af37; font-size: 13px; line-height: 1.6; max-width: 420px;
+    text-align: center; margin: 16px 0; border-top: 1px solid rgba(212,175,55,0.3); padding-top: 16px;
+  }
+  #deduction-continue-btn {
+    display: none; background: transparent; border: 1px solid #d4af37; color: #d4af37;
+    padding: 10px 24px; border-radius: 4px; font-size: 12px; letter-spacing: 1px;
+    cursor: pointer; pointer-events: all; font-family: inherit;
+  }
+
+  /* ===== Dialogue overlay ===== */
+  #dialogue-overlay {
+    position: fixed; bottom: 0; left: 0; width: 100%; z-index: 55;
+    display: none; flex-direction: column; pointer-events: all;
+    background: linear-gradient(to top, rgba(0,0,0,0.96), rgba(0,0,0,0.7));
+    padding: 20px; padding-bottom: 30px;
+  }
+  #dialogue-npc-name { color: #d4af37; font-size: 12px; letter-spacing: 2px; margin-bottom: 8px; }
+  #dialogue-npc-line { color: #fff; font-size: 15px; line-height: 1.6; margin-bottom: 18px; max-width: 600px; }
+  #dialogue-options { display: flex; flex-direction: column; gap: 8px; max-width: 600px; }
+  .dialogue-option-btn {
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(212,175,55,0.4); color: #ddd;
+    padding: 11px 16px; border-radius: 6px; font-size: 13px; text-align: left; cursor: pointer;
+    pointer-events: all; font-family: inherit; transition: 0.15s;
+  }
+  .dialogue-option-btn:hover { background: rgba(212,175,55,0.15); border-color: #d4af37; }
+  .dialogue-end-btn { border-color: #4ade80; color: #4ade80; }
+
+  /* ===== Cinematic banner ===== */
+  #cinematic-text-banner {
+    position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
+    color: #d4af37; font-size: 14px; letter-spacing: 1px; text-align: center;
+    z-index: 12; display: none; opacity: 0; transition: opacity 0.6s ease;
+    background: rgba(0,0,0,0.5); padding: 10px 20px; border-radius: 4px; max-width: 80%;
+  }
+  #cinematic-text-banner.visible { opacity: 1; }
+  #cinematic-bars-top, #cinematic-bars-bottom {
+    position: fixed; left: 0; width: 100%; height: 0; background: #000; z-index: 11;
+    transition: height 0.5s ease; pointer-events: none;
+  }
+  #cinematic-bars-top { top: 0; }
+  #cinematic-bars-bottom { bottom: 0; }
+  .bars-active#cinematic-bars-top, .bars-active#cinematic-bars-bottom { height: 8%; }
+
+  /* ===== Narrative screen ===== */
+  #narrative-screen {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: #000; z-index: 100; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; text-align: center; padding: 40px;
+  }
+  #narrative-text { color: #d4af37; font-size: 18px; letter-spacing: 2px; line-height: 1.8; max-width: 600px; opacity: 0; transition: opacity 1.2s ease; white-space: pre-line; }
+  #narrative-sub { color: #777; font-size: 12px; margin-top: 24px; letter-spacing: 1px; opacity: 0; transition: opacity 1.2s ease 0.3s; }
+  #tap-continue { position: absolute; bottom: 40px; color: #555; font-size: 11px; letter-spacing: 2px; opacity: 0; transition: opacity 1s ease 1.5s; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 0.3; } 50% { opacity: 0.8; } }
+
+  /* ===== Movement joystick ===== */
+  #joystick-zone {
+    position: fixed; bottom: 30px; left: 30px; width: 110px; height: 110px;
+    border: 1px solid rgba(212,175,55,0.3); border-radius: 50%; z-index: 15;
+    pointer-events: all; background: rgba(0,0,0,0.2);
+  }
+  #joystick-knob {
+    position: absolute; top: 50%; left: 50%; width: 44px; height: 44px; margin: -22px;
+    background: rgba(212,175,55,0.5); border: 1px solid #d4af37; border-radius: 50%; pointer-events: none;
+  }
+  #drive-btn {
+    position: fixed; bottom: 40px; right: 30px; z-index: 15; pointer-events: all;
+    background: rgba(0,0,0,0.6); border: 1px solid #d4af37; color: #d4af37;
+    padding: 14px 22px; border-radius: 6px; font-size: 12px; letter-spacing: 1px; display: none;
+  }
+
+  #fade-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: #000; z-index: 200; pointer-events: none; opacity: 0; transition: opacity 0.8s ease;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="game-canvas"></canvas>
+
+<div id="cinematic-bars-top"></div>
+<div id="cinematic-bars-bottom"></div>
+<div id="cinematic-text-banner"></div>
+
+<div id="hud">
+  <div id="top-bar">
+    <div>
+      <div id="level-label">EXPEDIENTE 64</div>
+      <div id="level-name">NIVEL 1 — OFICINA DE INVESTIGACIÓN</div>
+    </div>
+    <div id="evidence-counter"><div id="seal-icon"></div><span id="evidence-count">0 / 0</span></div>
+  </div>
+  <div id="objective-bar">Acércate al computador para revisar el expediente</div>
+  <div id="interact-prompt">[ E ] Interactuar</div>
+</div>
+
+<div id="detection-meter"><div id="detection-fill"></div></div>
+<div id="detection-label">NIVEL DE DETECCIÓN</div>
+<div id="detected-flash"></div>
+<div id="detected-banner">¡TE VIERON!</div>
+
+<div id="joystick-zone"><div id="joystick-knob"></div></div>
+<button id="drive-btn">🚗 CONDUCIR A LA OFICINA</button>
+
+<div id="device-overlay">
+  <div id="device-frame">
+    <div id="device-header">
+      <span id="device-title">TERMINAL — ARCHIVOS</span>
+      <div id="device-close">✕</div>
+    </div>
+    <div id="device-body"></div>
+  </div>
+</div>
+
+<div id="deduction-overlay">
+  <div id="deduction-title"></div>
+  <div id="deduction-progress"></div>
+  <div id="deduction-feedback"></div>
+  <div id="deduction-clues"></div>
+  <div id="deduction-connections-list"></div>
+  <div id="deduction-conclusion"></div>
+  <button id="deduction-continue-btn">[ Continuar ]</button>
+</div>
+
+<div id="dialogue-overlay">
+  <div id="dialogue-npc-name"></div>
+  <div id="dialogue-npc-line"></div>
+  <div id="dialogue-options"></div>
+</div>
+
+<div id="narrative-screen">
+  <div id="narrative-text"></div>
+  <div id="narrative-sub"></div>
+  <div id="tap-continue">TOCA PARA CONTINUAR</div>
+</div>
+
+<div id="fade-overlay"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="game-data.js"></script>
+<script src="mechanics-stealth.js"></script>
+<script src="mechanics-dialogue.js"></script>
+<script src="mechanics-deduction.js"></script>
+<script src="cinematics.js"></script>
+<script src="game-engine.js"></script>
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
