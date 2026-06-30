@@ -1,0 +1,17 @@
+{
+  "name": "expediente64",
+  "version": "0.2.0",
+  "description": "EXPEDIENTE 64 — Sourceseal Global Protocol. A first-person mystery/investigation web game.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": ["game", "three.js", "mystery", "investigation", "sourceseal", "webgame"],
+  "author": "Sourceseal",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+}
