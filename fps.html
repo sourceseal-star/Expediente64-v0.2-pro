@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>SourceSeal: Protocolo Inmutable</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Arial', sans-serif; }
+        #blocker { position: absolute; width: 100%; height: 100%; background: rgba(0,0,0,0.8); color: #fff; display: flex; align-items: center; justify-content: center; z-index: 100; }
+        #instructions { text-align: center; max-width: 600px; }
+        #hud { position: absolute; bottom: 20px; left: 20px; color: #fff; z-index: 10; font-size: 18px; }
+        #crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); color: #fff; font-size: 24px; z-index: 10; }
+        #ammo { position: absolute; bottom: 20px; right: 20px; color: #fff; z-index: 10; }
+        #level { position: absolute; top: 20px; left: 20px; color: #ffaa00; z-index: 10; }
+        #seal-prompt { position: absolute; top: 40%; left: 50%; transform: translate(-50%,-50%); color: #00d4ff; font-size: 24px; z-index: 10; display: none; }
+        #health { position: absolute; top: 20px; right: 20px; color: #ff2222; z-index: 10; }
+        #integrity { position: absolute; top: 40px; right: 20px; color: #00d4ff; z-index: 10; }
+        #message { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); color: #ffaa00; font-size: 20px; z-index: 10; display: none; }
+    </style>
+</head>
+<body>
+    <div id="blocker">
+        <div id="instructions">
+            <h1>SOURCESEAL: PROTOCOLO INMUTABLE</h1>
+            <p>La instalación ha sido corrompida. Sella los nodos de integridad y elimina las entidades hostiles.</p>
+            <p>WASD: Moverse | Ratón: Mirar | Clic izquierdo: Disparar | E: Sellar nodo | R: Recargar</p>
+            <p>Haz clic para empezar</p>
+        </div>
+    </div>
+    <div id="hud">INTEGRIDAD: <span id="integrity-value">100</span>%</div>
+    <div id="ammo">MUNICIÓN: <span id="ammo-count">30</span> / <span id="ammo-max">30</span></div>
+    <div id="crosshair">+</div>
+    <div id="level">NIVEL 1: ENTRADA</div>
+    <div id="seal-prompt">Pulsa E para sellar el nodo</div>
+    <div id="health">SALUD: <span id="health-value">100</span></div>
+    <div id="integrity">INTEGRIDAD: <span id="integrity-value">100</span>%</div>
+    <div id="message"></div>
+
+    <script type="importmap">
+        { "imports": { "three": "https://unpkg.com/three@0.128.0/build/three.module.js" } }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // ===================== CONFIGURACIÓN GENERAL =====================
+        const GRAVITY = 9.8;
+        const PLAYER_SPEED = 0.1;
+        const MOUSE_SENSITIVITY = 0.002;
+        const SHOOT_DELAY = 0.25;
+        const MAX_AMMO = 30;
+        const ENEMY_SHOOT_DELAY = 1.5;
+
+        // ===================== ESTADO DEL JUEGO =====================
+        let camera, scene, renderer;
+        let clock = new THREE.Clock();
+        let gameRunning = true;
+        let currentLevel = 1;
+        let ammo = MAX_AMMO;
+        let health = 100;
+        let integrity = 100;
+        let canSeal = false;
+        let nearSeal = null;
+        let enemies = [];
+        let seals = [];
+        let bullets = [];
+        let pickups = [];
+        let playerVelocity = new THREE.Vector3();
+        let euler = new THREE.Euler(0, 0, 0, 'YXZ');
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        let lastShootTime = 0;
+
+        // ===================== SISTEMA DE RECARGA =====================
+        let isReloading = false;
+        let reloadTimer = 0;
+        const RELOAD_TIME = 1.5;
+
+        function startReload() {
+            if (isReloading || ammo === MAX_AMMO) return;
+            isReloading = true;
+            reloadTimer = RELOAD_TIME;
+            const bar = document.createElement('div');
+            bar.id = 'reload-bar';
+            bar.style.cssText = 'position:absolute;bottom:100px;left:50%;transform:translateX(-50%);width:200px;height:8px;background:#333;border-radius:4px;z-index:20;overflow:hidden;';
+            const fill = document.createElement('div');
+            fill.id = 'reload-fill';
+            fill.style.cssText = 'width:0%;height:100%;background:#00d4ff;transition:width 0.1s;';
+            bar.appendChild(fill);
+            document.body.appendChild(bar);
+        }
+
+        // ===================== SISTEMA DE PARTÍCULAS =====================
+        const particles = [];
+
+        function createParticles(position, color, count = 15) {
+            const geom = new THREE.BufferGeometry();
+            const vertices = [];
+            for (let i = 0; i < count; i++) {
+                vertices.push(
+                    position.x + (Math.random() - 0.5) * 0.4,
+                    position.y + (Math.random() - 0.5) * 0.4,
+                    position.z + (Math.random() - 0.5) * 0.4
+                );
+            }
+            geom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            const mat = new THREE.PointsMaterial({ color: color, size: 0.05 });
+            const ps = new THREE.Points(geom, mat);
+            ps.userData = { life: 0.3 };
+            scene.add(ps);
+            particles.push(ps);
+        }
+
+        // ===================== AUDIO ESPACIAL 3D =====================
+        let audioCtx;
+        let audioListener;
+
+        function initAudio() {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            audioListener = audioCtx.listener;
+        }
+
+        // Sincroniza listener con la cámara (llamado en update())
+        function syncAudioListener() {
+            if (!audioListener || !camera) return;
+            audioListener.positionX.value = camera.position.x;
+            audioListener.positionY.value = camera.position.y;
+            audioListener.positionZ.value = camera.position.z;
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            audioListener.forwardX.value = forward.x;
+            audioListener.forwardY.value = forward.y;
+            audioListener.forwardZ.value = forward.z;
+            const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+            audioListener.upX.value = up.x;
+            audioListener.upY.value = up.y;
+            audioListener.upZ.value = up.z;
+        }
+
+        function playSpatialSound(x, y, z, freq, type, duration, vol = 0.5) {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            const panner = audioCtx.createPanner();
+            panner.panningModel = 'HRTF';
+            panner.positionX.value = x;
+            panner.positionY.value = y;
+            panner.positionZ.value = z;
+            osc.type = type;
+            osc.frequency.value = freq;
+            gain.gain.value = vol;
+            osc.connect(panner);
+            panner.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+            osc.stop(audioCtx.currentTime + duration);
+        }
+
+        function sfxShoot() {
+            playSpatialSound(camera.position.x, camera.position.y, camera.position.z, 800, 'square', 0.1, 0.3);
+        }
+        function sfxHit() {
+            playSpatialSound(camera.position.x, camera.position.y, camera.position.z, 200, 'sawtooth', 0.15, 0.2);
+        }
+        function sfxSeal(seal) {
+            const p = seal ? seal.position : camera.position;
+            playSpatialSound(p.x, p.y, p.z, 1000, 'sine', 0.2, 0.5);
+        }
+        function sfxDamage() {
+            playSpatialSound(camera.position.x, camera.position.y, camera.position.z, 100, 'sawtooth', 0.3, 0.5);
+        }
+        function enemyGrowl(enemy) {
+            playSpatialSound(enemy.position.x, enemy.position.y, enemy.position.z, 150, 'sawtooth', 0.3, 0.2);
+        }
+
+        // ===================== INICIALIZACIÓN =====================
+        function init() {
+            initAudio();
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x050510, 0.008);
+            scene.background = new THREE.Color(0x050510);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 1.6, 5);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = false;
+            document.body.appendChild(renderer.domElement);
+
+            // Controles
+            document.addEventListener('click', () => {
+                document.getElementById('blocker').style.display = 'none';
+                document.body.requestPointerLock();
+            });
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
+            document.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('resize', onResize);
+
+            buildLevel(currentLevel);
+        }
+
+        function onKeyDown(e) {
+            switch(e.key.toLowerCase()) {
+                case 'w': moveForward = true; break;
+                case 's': moveBackward = true; break;
+                case 'a': moveLeft = true; break;
+                case 'd': moveRight = true; break;
+                case 'r':
+                    startReload();
+                    break;
+                case 'e':
+                    if (canSeal && nearSeal) sealNode(nearSeal);
+                    break;
+            }
+        }
+        function onKeyUp(e) {
+            switch(e.key.toLowerCase()) {
+                case 'w': moveForward = false; break;
+                case 's': moveBackward = false; break;
+                case 'a': moveLeft = false; break;
+                case 'd': moveRight = false; break;
+            }
+        }
+        function onMouseMove(e) {
+            if (document.pointerLockElement !== document.body) return;
+            const movementX = e.movementX || 0;
+            const movementY = e.movementY || 0;
+            euler.setFromQuaternion(camera.quaternion);
+            euler.y -= movementX * MOUSE_SENSITIVITY;
+            euler.x -= movementY * MOUSE_SENSITIVITY;
+            euler.x = Math.max(-Math.PI/2.5, Math.min(Math.PI/2.5, euler.x));
+            camera.quaternion.setFromEuler(euler);
+        }
+        function onResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // ===================== CONSTRUCCIÓN DE NIVELES =====================
+        function buildLevel(level) {
+            // Limpiar escena
+            while(scene.children.length > 0) scene.remove(scene.children[0]);
+            enemies = []; seals = []; bullets = []; pickups = [];
+
+            // Iluminación ambiental
+            const ambient = new THREE.AmbientLight(0x223344);
+            scene.add(ambient);
+            const dirLight = new THREE.DirectionalLight(0x887766, 0.4);
+            dirLight.position.set(5, 10, 5);
+            scene.add(dirLight);
+
+            // Suelo
+            const floorMat = new THREE.MeshStandardMaterial({ color: 0x1a1a2e, roughness: 0.8 });
+            const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), floorMat);
+            floor.rotation.x = -Math.PI/2;
+            scene.add(floor);
+
+            // Paredes (laberinto simple)
+            createWalls(level);
+
+            // Nodos de sellado (esferas azules pulsantes)
+            for (let i = 0; i < 3 + level; i++) {
+                const geom = new THREE.SphereGeometry(0.4, 16, 16);
+                const mat = new THREE.MeshStandardMaterial({ color: 0x00d4ff, emissive: 0x004466, roughness: 0.3 });
+                const seal = new THREE.Mesh(geom, mat);
+                seal.position.set(randomRange(-10,10), 0.8, randomRange(-10,10));
+                seal.userData = { sealed: false };
+                scene.add(seal);
+                seals.push(seal);
+            }
+
+            // Enemigos (criaturas corruptas)
+            for (let i = 0; i < 4 + level*2; i++) {
+                createEnemy(randomRange(-12,12), randomRange(-12,12), level);
+            }
+            if (level === 4) createBoss();
+
+            // Pickups (salud y munición)
+            for (let i = 0; i < 3; i++) {
+                createPickup('health');
+                createPickup('ammo');
+            }
+
+            document.getElementById('level').textContent = `NIVEL ${level}`;
+            document.getElementById('integrity-value').textContent = integrity;
+            document.getElementById('health-value').textContent = health;
+            document.getElementById('ammo-count').textContent = ammo;
+            document.getElementById('ammo-max').textContent = MAX_AMMO;
+        }
+
+        function createWalls(level) {
+            const wallMat = new THREE.MeshStandardMaterial({ color: 0x2a2a3a, roughness: 0.9 });
+            // Sala cuadrada con divisiones internas según el nivel
+            const perimeter = [
+                { x: 0, z: -15, w: 30, h: 4, d: 0.5 },
+                { x: 0, z: 15, w: 30, h: 4, d: 0.5 },
+                { x: -15, z: 0, w: 0.5, h: 4, d: 30 },
+                { x: 15, z: 0, w: 0.5, h: 4, d: 30 }
+            ];
+            perimeter.forEach(p => {
+                const wall = new THREE.Mesh(new THREE.BoxGeometry(p.w, p.h, p.d), wallMat);
+                wall.position.set(p.x, 2, p.z);
+                scene.add(wall);
+            });
+            // Divisiones internas
+            if (level > 1) {
+                for (let i = 0; i < level; i++) {
+                    const divider = new THREE.Mesh(
+                        new THREE.BoxGeometry(0.5, 4, randomRange(8,15)),
+                        wallMat
+                    );
+                    divider.position.set(randomRange(-8,8), 2, randomRange(-8,8));
+                    scene.add(divider);
+                }
+            }
+        }
+
+        function createEnemy(x, z, level) {
+            const group = new THREE.Group();
+            const bodyGeo = new THREE.CylinderGeometry(0.5, 0.5, 1.8, 8);
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff2222, emissive: 0x330000 });
+            const body = new THREE.Mesh(bodyGeo, bodyMat);
+            body.position.y = 0.9;
+            group.add(body);
+            const eyeGeo = new THREE.SphereGeometry(0.15);
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            const eye = new THREE.Mesh(eyeGeo, eyeMat);
+            eye.position.set(0, 1.5, 0.4);
+            group.add(eye);
+            group.position.set(x, 0, z);
+            group.userData = {
+                health: 2 + level,
+                speed: 0.02 + level * 0.005,
+                lastShot: 0
+            };
+            scene.add(group);
+            enemies.push(group);
+        }
+
+        function createBoss() {
+            const boss = new THREE.Group();
+            const body = new THREE.Mesh(
+                new THREE.BoxGeometry(2, 3, 2),
+                new THREE.MeshStandardMaterial({ color: 0x8b0000, emissive: 0x220000 })
+            );
+            body.position.y = 1.5;
+            boss.add(body);
+            boss.position.set(0, 0, -5);
+            boss.userData = { health: 10, speed: 0.01, lastShot: 0, isBoss: true };
+            scene.add(boss);
+            enemies.push(boss);
+        }
+
+        function createPickup(type) {
+            const geom = type === 'health' ? new THREE.TetrahedronGeometry(0.3) : new THREE.BoxGeometry(0.4,0.4,0.4);
+            const mat = new THREE.MeshStandardMaterial({ color: type === 'health' ? 0x00ff00 : 0xffaa00, emissive: type === 'health' ? 0x003300 : 0x332200 });
+            const pickup = new THREE.Mesh(geom, mat);
+            pickup.position.set(randomRange(-10,10), 0.5, randomRange(-10,10));
+            pickup.userData = { type: type };
+            scene.add(pickup);
+            pickups.push(pickup);
+        }
+
+        function randomRange(min, max) { return Math.random() * (max - min) + min; }
+
+        // ===================== MECÁNICA DE SELLADO =====================
+        function sealNode(seal) {
+            if (seal.userData.sealed) return;
+            // Simular hash SHA-256
+            const hash = Array.from({length:64}, ()=>'0123456789abcdef'[Math.floor(Math.random()*16)]).join('');
+            const target = 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0';
+            const success = hash === target;
+            if (success) {
+                integrity = Math.min(100, integrity + 5);
+                seal.material.color.set(0x00ff00);
+                seal.material.emissive.set(0x003300);
+                sfxSeal();
+                showMessage("¡Sello verificado! Integridad aumentada.", '#00ff00');
+            } else {
+                integrity -= 10;
+                sfxDamage();
+                showMessage("Sello fallido. La corrupción avanza.", '#ff0000');
+            }
+            seal.userData.sealed = true;
+            document.getElementById('integrity-value').textContent = integrity;
+            if (integrity <= 0) gameOver();
+            checkLevelComplete();
+        }
+
+        // ===================== LÓGICA DEL JUEGO =====================
+        function update() {
+            if (!gameRunning) return;
+            const delta = Math.min(clock.getDelta(), 0.1); // evitar saltos grandes
+
+            // Movimiento del jugador
+            const moveDir = new THREE.Vector3();
+            if (moveForward) moveDir.z -= 1;
+            if (moveBackward) moveDir.z += 1;
+            if (moveLeft) moveDir.x -= 1;
+            if (moveRight) moveDir.x += 1;
+            moveDir.normalize().multiplyScalar(PLAYER_SPEED);
+            camera.position.x += moveDir.x;
+            camera.position.z += moveDir.z;
+
+            // Recarga animada
+            if (isReloading) {
+                reloadTimer -= delta;
+                const progress = 1 - (reloadTimer / RELOAD_TIME);
+                const fill = document.getElementById('reload-fill');
+                if (fill) fill.style.width = (Math.min(progress, 1) * 100) + '%';
+                if (reloadTimer <= 0) {
+                    ammo = MAX_AMMO;
+                    document.getElementById('ammo-count').textContent = ammo;
+                    isReloading = false;
+                    const bar = document.getElementById('reload-bar');
+                    if (bar) bar.remove();
+                }
+            }
+
+            // Actualizar partículas
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].userData.life -= delta;
+                if (particles[i].userData.life <= 0) {
+                    scene.remove(particles[i]);
+                    particles.splice(i, 1);
+                }
+            }
+
+            // Sincronizar audio 3D con cámara
+            syncAudioListener();
+
+            // Disparo (bloqueado si está recargando)
+            if (document.pointerLockElement && (keys[' '] || keys['mouse0'])) {
+                const now = performance.now() / 1000;
+                if (!isReloading && now - lastShootTime > SHOOT_DELAY && ammo > 0) {
+                    shoot();
+                    lastShootTime = now;
+                }
+            }
+
+            // Interacción de sellado
+            canSeal = false;
+            nearSeal = null;
+            seals.forEach(seal => {
+                if (seal.userData.sealed) return;
+                const dist = camera.position.distanceTo(seal.position);
+                if (dist < 2.5) {
+                    canSeal = true;
+                    nearSeal = seal;
+                    document.getElementById('seal-prompt').style.display = 'block';
+                }
+            });
+            if (!canSeal) document.getElementById('seal-prompt').style.display = 'none';
+
+            // Enemigos
+            enemies.forEach(enemy => {
+                const toPlayer = new THREE.Vector3().copy(camera.position).sub(enemy.position);
+                const dist = toPlayer.length();
+                // Movimiento hacia el jugador
+                if (dist > 2) {
+                    enemy.position.add(toPlayer.normalize().multiplyScalar(enemy.userData.speed));
+                }
+                // Disparo del enemigo
+                const now = performance.now()/1000;
+                if (now - enemy.userData.lastShot > ENEMY_SHOOT_DELAY && dist < 15) {
+                    enemyShoot(enemy);
+                    enemy.userData.lastShot = now;
+                }
+                // Daño por contacto
+                if (dist < 1.5) {
+                    health -= 5 * delta * 10;
+                    if (health <= 0) gameOver();
+                    document.getElementById('health-value').textContent = Math.max(0,Math.floor(health));
+                }
+            });
+
+            // Balas del jugador
+            bullets.forEach((bullet, index) => {
+                bullet.position.add(bullet.velocity);
+                // Colisión con enemigos
+                let hit = false;
+                enemies.forEach((enemy, eIndex) => {
+                    if (bullet.position.distanceTo(enemy.position) < 0.8) {
+                    createParticles(bullet.position.clone(), 0xff2222, 20); // impacto digital
+                        enemy.userData.health--;
+                        if (enemy.userData.health <= 0) {
+                            scene.remove(enemy);
+                            enemies.splice(eIndex, 1);
+                            sfxHit();
+                        }
+                        hit = true;
+                    }
+                });
+                if (hit || bullet.position.length() > 30) {
+                    scene.remove(bullet);
+                    bullets.splice(index, 1);
+                }
+            });
+
+            // Pickups
+            pickups.forEach((pickup, i) => {
+                if (camera.position.distanceTo(pickup.position) < 1.5) {
+                    if (pickup.userData.type === 'health') {
+                        health = Math.min(100, health + 20);
+                        document.getElementById('health-value').textContent = health;
+                    } else if (pickup.userData.type === 'ammo') {
+                        ammo = MAX_AMMO;
+                        document.getElementById('ammo-count').textContent = ammo;
+                    }
+                    scene.remove(pickup);
+                    pickups.splice(i, 1);
+                }
+            });
+
+            checkLevelComplete();
+        }
+
+        function shoot() {
+            ammo--;
+            document.getElementById('ammo-count').textContent = ammo;
+            sfxShoot();
+            // Partículas de cañón (muzzle flash)
+            const muzzlePos = camera.position.clone().add(
+                new THREE.Vector3(0, -0.2, -1).applyQuaternion(camera.quaternion)
+            );
+            createParticles(muzzlePos, 0xffaa00, 10);
+            const bulletGeo = new THREE.SphereGeometry(0.05);
+            const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+            const bullet = new THREE.Mesh(bulletGeo, bulletMat);
+            bullet.position.copy(camera.position);
+            const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            bullet.velocity = dir.multiplyScalar(0.8);
+            scene.add(bullet);
+            bullets.push(bullet);
+        }
+
+        function enemyShoot(enemy) {
+            const bulletGeo = new THREE.SphereGeometry(0.08);
+            const bulletMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            const bullet = new THREE.Mesh(bulletGeo, bulletMat);
+            bullet.position.copy(enemy.position);
+            bullet.position.y += 1;
+            const dir = new THREE.Vector3().copy(camera.position).sub(bullet.position).normalize();
+            bullet.velocity = dir.multiplyScalar(0.3);
+            scene.add(bullet);
+            bullets.push(bullet); // usar mismo array, pero con lógica de daño al jugador
+        }
+
+        function checkLevelComplete() {
+            const allSealed = seals.every(s => s.userData.sealed);
+            if (allSealed && enemies.length === 0) {
+                if (currentLevel < 4) {
+                    currentLevel++;
+                    buildLevel(currentLevel);
+                } else {
+                    winGame();
+                }
+            }
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            document.exitPointerLock();
+            alert("MISIÓN FALLIDA. La corrupción ha consumido el sistema.");
+            location.reload();
+        }
+
+        function winGame() {
+            gameRunning = false;
+            document.exitPointerLock();
+            alert("¡VICTORIA! Has restaurado la integridad del sistema. SourceSeal te saluda, agente.");
+            location.reload();
+        }
+
+        function showMessage(text, color) {
+            const msg = document.getElementById('message');
+            msg.textContent = text;
+            msg.style.color = color;
+            msg.style.display = 'block';
+            setTimeout(() => msg.style.display = 'none', 3000);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            update();
+            renderer.render(scene, camera);
+        }
+
+        // Teclas auxiliares para disparo (mouse)
+        const keys = {};
+        document.addEventListener('mousedown', (e) => { if (e.button === 0) keys['mouse0'] = true; });
+        document.addEventListener('mouseup', (e) => { if (e.button === 0) keys['mouse0'] = false; });
+        document.addEventListener('keydown', (e) => { keys[e.key] = true; });
+        document.addEventListener('keyup', (e) => { keys[e.key] = false; });
+
+        init();
+        animate();
+    </script>
+</body>
+</html>
+```
