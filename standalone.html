@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>EXPEDIENTE 64 — Sourceseal Global Protocol</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
+#game-canvas { display: block; width: 100%; height: 100%; position: fixed; top: 0; left: 0; }
+
+/* ── HUD ── */
+#hud { position: fixed; top: 0; left: 0; width: 100%; pointer-events: none; z-index: 10; }
+#level-name { position: absolute; top: 18px; left: 50%; transform: translateX(-50%);
+  font-size: 11px; letter-spacing: 3px; color: #d4af37; text-transform: uppercase; opacity: 0.85; }
+#objective-bar { position: absolute; top: 40px; left: 50%; transform: translateX(-50%);
+  font-size: 10px; letter-spacing: 1px; color: #8899bb; max-width: 520px; text-align: center; }
+#evidence-counter { position: absolute; top: 18px; right: 22px;
+  font-size: 11px; color: #d4af37; letter-spacing: 2px; opacity: 0.8; }
+#interact-prompt { position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%);
+  font-size: 12px; color: #fff; letter-spacing: 2px; opacity: 0;
+  transition: opacity 0.3s; background: rgba(0,0,0,0.55); padding: 6px 18px;
+  border: 1px solid rgba(212,175,55,0.4); }
+#interact-prompt.visible { opacity: 1; }
+#crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  width: 14px; height: 14px; opacity: 0.6; }
+#crosshair::before, #crosshair::after { content:''; position:absolute; background:#d4af37; }
+#crosshair::before { width:1px; height:14px; left:6px; top:0; }
+#crosshair::after  { width:14px; height:1px; left:0; top:6px; }
+#drive-btn { position: absolute; bottom: 28px; right: 28px; pointer-events: all;
+  background: rgba(212,175,55,0.12); border: 1px solid #d4af37; color: #d4af37;
+  font-family: 'Courier New', monospace; font-size: 12px; letter-spacing: 2px;
+  padding: 10px 22px; cursor: pointer; text-transform: uppercase; display: none;
+  transition: background 0.2s; }
+#drive-btn:hover { background: rgba(212,175,55,0.28); }
+
+/* ── Detection meter ── */
+#detection-bar-wrap { position: absolute; bottom: 28px; left: 22px; width: 160px; display: none; }
+#detection-label { font-size: 9px; letter-spacing: 2px; color: #ff6644; margin-bottom: 4px; }
+#detection-bar-bg { width: 100%; height: 4px; background: rgba(255,100,68,0.2); }
+#detection-bar-fill { height: 4px; background: #ff6644; width: 0%; transition: width 0.1s; }
+
+/* ── NARRATIVE SCREEN ── */
+#narrative-screen { position: fixed; inset: 0; background: #000; z-index: 50;
+  display: flex; align-items: center; justify-content: center; flex-direction: column;
+  opacity: 0; transition: opacity 0.7s; pointer-events: none; }
+#narrative-screen.visible { opacity: 1; pointer-events: all; }
+#narrative-text { font-size: clamp(18px, 3.5vw, 32px); color: #f0f0f0; letter-spacing: 3px;
+  text-align: center; max-width: 680px; line-height: 1.5; white-space: pre-wrap; }
+#narrative-sub { margin-top: 14px; font-size: 12px; color: #d4af37; letter-spacing: 4px;
+  text-transform: uppercase; min-height: 20px; }
+
+/* ── CINEMATIC TEXT BANNER ── */
+#cinematic-text-banner { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%);
+  font-size: 13px; color: #ccc; letter-spacing: 2px; background: rgba(0,0,0,0.7);
+  padding: 8px 22px; border-left: 2px solid #d4af37; display: none; opacity: 0;
+  transition: opacity 0.6s; z-index: 30; }
+#cinematic-text-banner.visible { opacity: 1; }
+
+/* ── FILE VIEWER ── */
+#file-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.88);
+  z-index: 40; display: none; align-items: center; justify-content: center; }
+#file-overlay.open { display: flex; }
+#file-panel { background: #0a0d14; border: 1px solid #1e2a40; width: min(560px,92vw);
+  max-height: 88vh; overflow-y: auto; padding: 28px 32px; }
+#file-panel-title { font-size: 11px; color: #d4af37; letter-spacing: 3px; margin-bottom: 20px; text-transform: uppercase; }
+.file-item { border-bottom: 1px solid #1a2030; padding: 14px 0; cursor: pointer; transition: background 0.15s; }
+.file-item:hover { background: rgba(212,175,55,0.06); }
+.file-item-header { display: flex; gap: 12px; align-items: center; }
+.file-tag { font-size: 8px; letter-spacing: 2px; padding: 3px 8px;
+  border: 1px solid #d4af37; color: #d4af37; }
+.file-name { font-size: 12px; color: #ccc; letter-spacing: 1px; }
+.file-meta { font-size: 10px; color: #556; margin-top: 5px; }
+.file-detail { font-size: 11px; color: #8ab; margin-top: 8px; line-height: 1.6;
+  display: none; border-left: 2px solid #d4af37; padding-left: 12px; }
+.file-item.expanded .file-detail { display: block; }
+.file-item.verified .file-name::after { content: ' ✓'; color: #4a9; }
+#file-close-btn { display: block; margin-top: 22px; width: 100%; padding: 10px;
+  background: transparent; border: 1px solid #334; color: #667; cursor: pointer;
+  font-family: 'Courier New', monospace; font-size: 11px; letter-spacing: 2px;
+  transition: border-color 0.2s, color 0.2s; text-transform: uppercase; }
+#file-close-btn:hover { border-color: #d4af37; color: #d4af37; }
+
+/* ── DEDUCTION BOARD ── */
+#deduction-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.92);
+  z-index: 40; display: none; align-items: center; justify-content: center; flex-direction: column; }
+#deduction-panel { background: #08090f; border: 1px solid #2a3050; width: min(700px,95vw);
+  max-height: 92vh; overflow-y: auto; padding: 30px 32px; }
+#deduction-title { font-size: 11px; color: #d4af37; letter-spacing: 3px; margin-bottom: 24px; text-transform: uppercase; }
+#deduction-clues { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 22px; }
+.clue-node { padding: 10px 16px; border: 1px solid #2a3050; font-size: 11px;
+  color: #8899bb; cursor: pointer; transition: all 0.2s; letter-spacing: 1px; }
+.clue-node:hover { border-color: #d4af37; color: #d4af37; }
+.clue-node.selected { border-color: #d4af37; background: rgba(212,175,55,0.12); color: #d4af37; }
+.clue-node.connected { border-color: #4a9; color: #4a9; background: rgba(68,170,136,0.08); }
+#deduction-connections-list { margin-bottom: 16px; min-height: 20px; }
+.connection-line-item { font-size: 10px; color: #4a9; letter-spacing: 1px; padding: 4px 0; }
+#deduction-feedback { font-size: 11px; letter-spacing: 2px; min-height: 18px; margin-bottom: 10px; }
+.feedback-success { color: #4a9; }
+.feedback-fail { color: #e74; }
+#deduction-progress { font-size: 10px; color: #556; letter-spacing: 2px; margin-bottom: 16px; }
+#deduction-conclusion { display: none; font-size: 12px; color: #bbc; letter-spacing: 1px; line-height: 1.7;
+  border-left: 2px solid #d4af37; padding-left: 14px; margin-bottom: 18px; }
+#deduction-continue-btn { display: none; width: 100%; padding: 11px; background: transparent;
+  border: 1px solid #d4af37; color: #d4af37; cursor: pointer; font-family: 'Courier New', monospace;
+  font-size: 11px; letter-spacing: 3px; text-transform: uppercase; transition: background 0.2s; }
+#deduction-continue-btn:hover { background: rgba(212,175,55,0.14); }
+
+/* ── DIALOGUE ── */
+#dialogue-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.88);
+  z-index: 40; display: none; align-items: flex-end; justify-content: center; padding-bottom: 40px; }
+#dialogue-panel { background: #070810; border: 1px solid #1e2a40; width: min(660px,92vw); padding: 24px 28px; }
+#dialogue-npc-name { font-size: 10px; color: #d4af37; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 10px; }
+#dialogue-npc-line { font-size: 13px; color: #ccd; letter-spacing: 1px; line-height: 1.7;
+  border-left: 2px solid #334; padding-left: 14px; margin-bottom: 20px; min-height: 40px; }
+#dialogue-options { display: flex; flex-direction: column; gap: 8px; }
+.dialogue-option-btn { padding: 11px 16px; background: transparent; border: 1px solid #2a3050;
+  color: #8899bb; cursor: pointer; font-family: 'Courier New', monospace; font-size: 11px;
+  letter-spacing: 1px; text-align: left; transition: all 0.18s; }
+.dialogue-option-btn:hover { border-color: #d4af37; color: #d4af37; background: rgba(212,175,55,0.07); }
+.dialogue-end-btn { border-color: #4a9; color: #4a9; }
+.dialogue-end-btn:hover { background: rgba(68,170,136,0.1); }
+
+/* ── MOBILE CONTROLS ── */
+#mobile-controls { display: none; position: fixed; bottom: 0; left: 0; width: 100%; z-index: 20;
+  pointer-events: none; padding: 16px; }
+#joystick-zone { position: absolute; bottom: 28px; left: 28px; width: 110px; height: 110px;
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 50%; pointer-events: all; touch-action: none; }
+#joystick-thumb { position: absolute; width: 44px; height: 44px;
+  background: rgba(212,175,55,0.35); border: 1px solid #d4af37;
+  border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%,-50%); }
+#mobile-interact-btn { position: absolute; bottom: 44px; right: 32px;
+  width: 64px; height: 64px; border-radius: 50%; background: rgba(212,175,55,0.15);
+  border: 1px solid #d4af37; color: #d4af37; font-family: 'Courier New', monospace;
+  font-size: 9px; letter-spacing: 1px; text-transform: uppercase; pointer-events: all;
+  touch-action: none; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+#look-zone { position: fixed; top: 0; right: 0; width: 55%; height: 100%; z-index: 15;
+  pointer-events: all; touch-action: none; display: none; }
+
+@media (pointer: coarse) {
+  #mobile-controls { display: block; }
+  #look-zone { display: block; }
+}
+</style>
+</head>
+<body>
+
+<canvas id="game-canvas"></canvas>
+
+<!-- HUD -->
+<div id="hud">
+  <div id="level-name"></div>
+  <div id="objective-bar"></div>
+  <div id="evidence-counter"></div>
+  <div id="interact-prompt"></div>
+  <div id="crosshair"></div>
+  <button id="drive-btn">Conducir →</button>
+  <div id="detection-bar-wrap">
+    <div id="detection-label">DETECCIÓN</div>
+    <div id="detection-bar-bg"><div id="detection-bar-fill"></div></div>
+  </div>
+</div>
+
+<!-- Narrative -->
+<div id="narrative-screen">
+  <div id="narrative-text"></div>
+  <div id="narrative-sub"></div>
+</div>
+<div id="cinematic-text-banner"></div>
+
+<!-- File viewer -->
+<div id="file-overlay">
+  <div id="file-panel">
+    <div id="file-panel-title">ARCHIVOS</div>
+    <div id="file-list"></div>
+    <button id="file-close-btn">[ Cerrar ]</button>
+  </div>
+</div>
+
+<!-- Deduction board -->
+<div id="deduction-overlay">
+  <div id="deduction-panel">
+    <div id="deduction-title"></div>
+    <div id="deduction-clues"></div>
+    <div id="deduction-connections-list"></div>
+    <div id="deduction-feedback"></div>
+    <div id="deduction-progress"></div>
+    <div id="deduction-conclusion"></div>
+    <button id="deduction-continue-btn">[ Concluir investigación ]</button>
+  </div>
+</div>
+
+<!-- Dialogue -->
+<div id="dialogue-overlay">
+  <div id="dialogue-panel">
+    <div id="dialogue-npc-name"></div>
+    <div id="dialogue-npc-line"></div>
+    <div id="dialogue-options"></div>
+  </div>
+</div>
+
+<!-- Mobile -->
+<div id="mobile-controls">
+  <div id="joystick-zone"><div id="joystick-thumb"></div></div>
+  <button id="mobile-interact-btn">E</button>
+</div>
+<div id="look-zone"></div>
+
+<!-- Three.js -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+
+<script>
+// ============================================================
+// EXPEDIENTE 64 — STANDALONE v1.0
+// Todo fusionado: engine + datos + mecánicas
+// ============================================================
+
+// ============================================================
+// GAME DATA
+// ============================================================
+const GAME_DATA = {
+  intro: [
+    { text: "EXPEDIENTE 64", sub: "Sourceseal Global Protocol" },
+    { text: "Cada día, documentos y pruebas son alterados\nantes de llegar a un juicio.", sub: "" },
+    { text: "Tu trabajo es encontrar lo que es real,\nconectar las pistas, y obtener la verdad.", sub: "" },
+    { text: "NIVEL 1", sub: "Oficina de investigación" }
+  ],
+  level1: {
+    name: "NIVEL 1 — OFICINA DE INVESTIGACIÓN",
+    objective: "Revisa el computador y el celular. Luego conecta las pistas en la pizarra.",
+    openingCinematic: {
+      waypoints: [
+        { pos: [0, 1.6, 6], lookAt: [0, 1.6, -3], hold: 1.0 },
+        { pos: [-3, 1.6, 0], lookAt: [0, 1.3, -3.3], hold: 1.0 },
+        { pos: [0, 1.6, 1.5], lookAt: [0, 1.3, -3.3], hold: 0.5 },
+      ],
+      text: "El expediente llegó esta mañana. Algo no cuadra."
+    },
+    computerFiles: [
+      { id: "doc_01", title: "Contrato_RevisiónFinal.pdf", meta: "Modificado 03:14 AM — Autor desconocido", tag: "doc", tagLabel: "DOCUMENTO", detail: "La fecha de firma fue alterada digitalmente. El metadato original fue eliminado.", clueId: "clue_fecha_alterada" },
+      { id: "audio_01", title: "Grabación_Llamada_0427.mp3", meta: "Duración 2:14 — Calidad comprometida", tag: "audio", tagLabel: "AUDIO", detail: "Voz que coincide con el patrón vocal del testigo principal. Cortes sospechosos en 0:42 y 1:18.", clueId: "clue_voz_testigo" },
+      { id: "video_01", title: "CamSeguridad_EntradaPrincipal.mp4", meta: "Timestamp incompatible con el registro del edificio", tag: "video", tagLabel: "VIDEO", detail: "El video muestra una hora distinta a la registrada en el sistema de acceso.", clueId: "clue_timestamp_falso" },
+    ],
+    phoneFiles: [
+      { id: "msg_01", title: "Mensajes — Contacto oculto", meta: "Conversación eliminada, recuperada parcialmente", tag: "doc", tagLabel: "MENSAJES", detail: '"...si alguien pregunta, el documento se firmó el lunes, no el jueves..."', clueId: "clue_mensaje_encubrimiento" },
+      { id: "loc_01", title: "Historial de ubicación", meta: "Inconsistencia geográfica detectada", tag: "doc", tagLabel: "UBICACIÓN", detail: "El dispositivo registra una ubicación distinta a la declarada en el testimonio oficial.", clueId: "clue_ubicacion_falsa" },
+    ],
+    deductionBoard: {
+      title: "PIZARRA DE INVESTIGACIÓN — CONECTA LA EVIDENCIA",
+      clues: [
+        { id: "clue_fecha_alterada", label: "Fecha de firma alterada" },
+        { id: "clue_mensaje_encubrimiento", label: "Mensaje: \"firmó el lunes, no el jueves\"" },
+        { id: "clue_timestamp_falso", label: "Timestamp de cámara incompatible" },
+        { id: "clue_ubicacion_falsa", label: "Ubicación no coincide con testimonio" },
+        { id: "clue_voz_testigo", label: "Voz del testigo con cortes sospechosos" },
+      ],
+      correctPairs: [
+        ["clue_fecha_alterada", "clue_mensaje_encubrimiento"],
+        ["clue_timestamp_falso", "clue_ubicacion_falsa"],
+      ],
+      conclusion: "Conclusión: el documento fue firmado después de lo declarado, y alguien manipuló los registros para cubrirlo. El testigo sabe más de lo que dijo.",
+    },
+  },
+  toLevel2: [
+    { text: "La pizarra está completa.", sub: "" },
+    { text: "Pero falta una pieza. Hay que verla en persona.", sub: "" },
+    { text: "NIVEL 2", sub: "En camino — barrio residencial" }
+  ],
+  level2: {
+    name: "NIVEL 2 — VERIFICACIÓN EN TERRENO",
+    objective: "Verifica en el celular, luego cruza el barrio sin ser visto.",
+    phoneFiles: [
+      { id: "v2_check_01", title: "Verificación de dirección", meta: "Comparando con registro del expediente", tag: "doc", tagLabel: "VERIFICACIÓN", detail: "La dirección coincide con la registrada en el Nivel 1." },
+      { id: "v2_check_02", title: "Reconocimiento facial — Transeúnte", meta: "Coincidencia 87%", tag: "video", tagLabel: "CÁMARA", detail: "Una persona del video de seguridad del Nivel 1 fue detectada cerca de aquí hace 12 minutos." },
+    ],
+    stealthSection: {
+      objective: "Cruza el barrio hasta la entrada de la tienda sin que el vigilante te detecte.",
+      guardPatrol: [
+        { pos: [-3, 0, -6], hold: 2 },
+        { pos: [2, 0, -6], hold: 2 },
+        { pos: [2, 0, -9], hold: 2 },
+        { pos: [-3, 0, -9], hold: 2 },
+      ],
+      guardVisionRange: 5,
+      guardVisionAngle: 0.6,
+      hidingSpots: [
+        { pos: [-4.5, 0, -7.5], label: "Detrás del contenedor" },
+        { pos: [3.5, 0, -7], label: "Detrás del auto estacionado" },
+      ],
+      destination: { pos: [0, 0, -11], label: "Entrada — Tienda de comida rápida" },
+      onDetected: "El vigilante te vio. Vuelve a un punto de cobertura.",
+    },
+    driveDestination: "Oficina — Edificio corporativo",
+  },
+  toLevel3: [
+    { text: "Entraste sin ser visto.", sub: "" },
+    { text: "Ahora hay que llegar al fondo de todo esto.", sub: "" },
+    { text: "NIVEL 3", sub: "Oficina ejecutiva" }
+  ],
+  level3: {
+    name: "NIVEL 3 — OFICINA EJECUTIVA",
+    objective: "Revisa la evidencia final, luego confronta al sospechoso.",
+    computerFiles: [
+      { id: "l3_doc_01", title: "Transferencia_Confidencial.xlsx", meta: "Acceso restringido — Nivel ejecutivo", tag: "doc", tagLabel: "DOCUMENTO", detail: "Registro financiero que confirma el pago relacionado con la alteración del contrato.", clueId: "l3_clue_transferencia" },
+      { id: "l3_video_01", title: "Reunión_SalaDirectorio.mp4", meta: "Grabación interna no autorizada", tag: "video", tagLabel: "VIDEO", detail: 'Se discute la necesidad de "ajustar las fechas antes de que alguien revise el expediente".', clueId: "l3_clue_reunion" },
+    ],
+    phoneFiles: [
+      { id: "l3_audio_01", title: "Nota de voz interceptada", meta: "Remitente: Dirección Ejecutiva", tag: "audio", tagLabel: "AUDIO", detail: '"...el sello de Sourceseal va a detectar la alteración. Hay que actuar antes de que se complete la verificación..."', clueId: "l3_clue_audio" },
+    ],
+    interrogation: {
+      npcName: "Director Ejecutivo",
+      openingLine: "No sé qué cree que encontró aquí, pero le sugiero que tenga cuidado con sus acusaciones.",
+      nodes: {
+        start: {
+          npcLine: "No sé qué cree que encontró aquí, pero le sugiero que tenga cuidado con sus acusaciones.",
+          options: [
+            { text: "Tengo el registro financiero. Y la grabación de la sala de juntas.", next: "pressure_evidence" },
+            { text: "Solo quiero entender qué pasó con la fecha del contrato.", next: "soft_approach" },
+          ]
+        },
+        pressure_evidence: {
+          npcLine: "Eso... eso pudo ser sacado de contexto.",
+          options: [
+            { text: "El sello de Sourceseal ya verificó la cadena de custodia. No hay contexto que valga.", next: "confession" },
+            { text: "Entonces explíqueme el contexto.", next: "stall" },
+          ]
+        },
+        soft_approach: {
+          npcLine: "Un error administrativo. Nada más.",
+          options: [
+            { text: "Un 'error administrativo' que coincide con una transferencia confidencial el mismo día.", next: "pressure_evidence" },
+          ]
+        },
+        stall: {
+          npcLine: "Mire, todos cometemos errores bajo presión...",
+          options: [
+            { text: "Eso no es una explicación. Es una confesión a medias.", next: "confession" },
+          ]
+        },
+        confession: {
+          npcLine: "Está bien. Sí, alteramos la fecha. Necesitábamos tiempo antes de que esto saliera a la luz.",
+          options: [],
+          isEnding: true,
+        },
+      }
+    },
+  },
+  ending: [
+    { text: "Confesión obtenida. Evidencia sellada.", sub: "" },
+    { text: "Ya no puede ser alterada, borrada ni negada.", sub: "" },
+    { text: "SOURCESEAL GLOBAL PROTOCOL", sub: "La verdad ahora tiene un protocolo." },
+    { text: "FIN DEL EXPEDIENTE 64", sub: "Gracias por jugar" }
+  ],
+};
+
+// ============================================================
+// STATE
+// ============================================================
+const STATE = {
+  currentLevel: 'intro',
+  verifiedEvidence: new Set(),
+  totalEvidenceThisLevel: 0,
+  player: { x: 0, z: 3, rotY: Math.PI, speed: 2.4 },
+  moveVector: { x: 0, z: 0 },
+  nearInteractable: null,
+  interactables: [],
+  inDevice: false,
+  inVehicle: false,
+  inCinematic: false,
+  inDeduction: false,
+  inDialogue: false,
+  inStealthSection: false,
+  exitReady: false,
+  deductionUnlocked: false,
+  stealthDestinationReached: false,
+};
+
+// ============================================================
+// THREE.JS SETUP
+// ============================================================
+const canvas = document.getElementById('game-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x050505);
+scene.fog = new THREE.Fog(0x050505, 8, 22);
+
+const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 100);
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+function clearLevel() {
+  while (scene.children.length > 0) scene.remove(scene.children[0]);
+  STATE.interactables = [];
+  StealthSystem.reset();
+}
+function addAmbient(intensity = 0.35, color = 0x4060ff) { scene.add(new THREE.AmbientLight(color, intensity)); }
+function addSpot(x, y, z, target, color = 0xd4af37, intensity = 1.2) {
+  const spot = new THREE.SpotLight(color, intensity, 14, Math.PI / 5, 0.4, 1.5);
+  spot.position.set(x, y, z); spot.castShadow = true;
+  scene.add(spot);
+  if (target) { spot.target.position.set(target.x, target.y, target.z); scene.add(spot.target); }
+  return spot;
+}
+function addInteractable(mesh, type, radius = 1.4, extra = {}) {
+  mesh.userData.interactable = true; mesh.userData.type = type; mesh.userData.radius = radius;
+  Object.assign(mesh.userData, extra);
+  scene.add(mesh); STATE.interactables.push(mesh); return mesh;
+}
+
+// ── Hands ──
+let handsGroup;
+function buildHands() {
+  handsGroup = new THREE.Group();
+  const skinMat = new THREE.MeshStandardMaterial({ color: 0xC79A78, roughness: 0.7 });
+  const sleeveMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.6 });
+  function makeHand(side) {
+    const g = new THREE.Group();
+    const palm = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.05, 0.16), skinMat);
+    g.add(palm);
+    for (let i = 0; i < 4; i++) {
+      const finger = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.018, 0.08), skinMat);
+      finger.position.set(-0.03 + i * 0.02, 0, -0.11); g.add(finger);
+    }
+    const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.18, 8), sleeveMat);
+    sleeve.rotation.x = Math.PI / 2; sleeve.position.set(0, 0, 0.14); g.add(sleeve);
+    g.position.set(side === 'left' ? -0.22 : 0.22, -0.22, -0.45);
+    g.rotation.y = side === 'left' ? 0.15 : -0.15;
+    g.userData.side = side; return g;
+  }
+  handsGroup.add(makeHand('left')); handsGroup.add(makeHand('right'));
+  camera.add(handsGroup); scene.add(camera);
+}
+buildHands();
+
+let walkTime = 0;
+function animateHands(delta, isMoving) {
+  walkTime += delta * (isMoving ? 6 : 1.2);
+  handsGroup.children.forEach((hand, i) => {
+    const dir = i === 0 ? 1 : -1;
+    const bob = isMoving ? 0.018 : 0.006;
+    hand.position.y = -0.22 + Math.sin(walkTime + dir) * bob;
+    hand.position.x = (hand.userData.side === 'left' ? -0.22 : 0.22) + Math.sin(walkTime * 0.5) * 0.01 * dir;
+    hand.rotation.z = Math.sin(walkTime + dir) * 0.02;
+  });
+}
+
+// ============================================================
+// LEVEL BUILDERS
+// ============================================================
+function buildLevel1() {
+  clearLevel();
+  addAmbient(0.28, 0x3a4d8f);
+  scene.fog = new THREE.Fog(0x050505, 6, 18);
+
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0x0d0d12, roughness: 0.9 });
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(14, 14), floorMat);
+  floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x111118, roughness: 1 });
+  [[0,3,-7,0], [-7,3,0,Math.PI/2], [7,3,0,-Math.PI/2], [0,3,7,Math.PI]].forEach(([x,y,z,ry]) => {
+    const w = new THREE.Mesh(new THREE.PlaneGeometry(14,6), wallMat);
+    w.position.set(x,y,z); w.rotation.y = ry; scene.add(w);
+  });
+  const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(14,14), new THREE.MeshStandardMaterial({ color: 0x080810 }));
+  ceiling.rotation.x = Math.PI/2; ceiling.position.y = 6; scene.add(ceiling);
+
+  // Desk
+  const desk = new THREE.Mesh(new THREE.BoxGeometry(2.4,0.08,1.1), new THREE.MeshStandardMaterial({ color: 0x2b2117, roughness: 0.6 }));
+  desk.position.set(0,0.9,-3); desk.castShadow = true; scene.add(desk);
+  const leg = (x,z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.9,0.06), new THREE.MeshStandardMaterial({ color: 0x1a1208 })); m.position.set(x,0.45,z); scene.add(m); };
+  leg(-1.1,-2.6); leg(1.1,-2.6); leg(-1.1,-3.4); leg(1.1,-3.4);
+
+  // Monitor (interactable)
+  const monitor = new THREE.Mesh(new THREE.BoxGeometry(0.7,0.45,0.04), new THREE.MeshStandardMaterial({ color: 0x0a1a2e, emissive: 0x1e3a5f, emissiveIntensity: 1.4 }));
+  monitor.position.set(0,1.35,-3.35); addInteractable(monitor, 'computer', 1.6);
+
+  // Phone (interactable)
+  const phone = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.02,0.16), new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xd4af37, emissiveIntensity: 0.4 }));
+  phone.position.set(0.7,0.95,-2.9); addInteractable(phone, 'phone', 1.3);
+
+  // Filing cabinet
+  const cabinet = new THREE.Mesh(new THREE.BoxGeometry(0.7,1.4,0.5), new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.6 }));
+  cabinet.position.set(2.5,0.7,-3.5); scene.add(cabinet);
+
+  // Deduction corkboard
+  const corkboard = new THREE.Mesh(new THREE.BoxGeometry(1.6,1.1,0.05), new THREE.MeshStandardMaterial({ color: 0x4a3528, roughness: 1 }));
+  corkboard.position.set(-6.9,1.6,1.5); corkboard.rotation.y = Math.PI/2;
+  addInteractable(corkboard, 'deductionBoard', 1.8);
+  // Pin strings visual decoration
+  for (let i = 0; i < 5; i++) {
+    const pin = new THREE.Mesh(new THREE.SphereGeometry(0.025,6,6), new THREE.MeshBasicMaterial({ color: 0xd4af37 }));
+    pin.position.set(-6.86, 1.3 + Math.random()*0.7, 1.0 + Math.random()*1.0);
+    scene.add(pin);
+  }
+
+  // Exit door
+  const door = new THREE.Mesh(new THREE.BoxGeometry(0.9,2,0.08), new THREE.MeshStandardMaterial({ color: 0x1a1510, roughness: 0.8, emissive: 0x332200, emissiveIntensity: 0 }));
+  door.position.set(5,1,-6.9); door.userData._isDoor = true; addInteractable(door, 'exit', 1.6);
+
+  addSpot(0,4,-2, {x:0,y:1.2,z:-3.3}, 0xd4af37, 1.4);
+  addSpot(-5,3.5,1.5, {x:-6.9,y:1.6,z:1.5}, 0xffaa55, 1.0);
+
+  STATE.player.x = 0; STATE.player.z = 1.5; STATE.player.rotY = Math.PI;
+  STATE.deductionUnlocked = false; STATE.exitReady = false;
+  STATE.totalEvidenceThisLevel = GAME_DATA.level1.computerFiles.length + GAME_DATA.level1.phoneFiles.length;
+  updateEvidenceCounter();
+  document.getElementById('level-name').textContent = GAME_DATA.level1.name;
+  document.getElementById('objective-bar').textContent = GAME_DATA.level1.objective;
+  document.getElementById('drive-btn').style.display = 'none';
+  document.getElementById('detection-bar-wrap').style.display = 'none';
+}
+
+function buildLevel2_Car() {
+  clearLevel();
+  addAmbient(0.4, 0xffaa55);
+  scene.fog = new THREE.Fog(0x1a1208, 4, 16);
+
+  const dashMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.7 });
+  const dash = new THREE.Mesh(new THREE.BoxGeometry(2.4,0.6,0.5), dashMat);
+  dash.position.set(0,0.7,-1.2); scene.add(dash);
+  const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.22,0.04,12,24), dashMat);
+  wheel.position.set(-0.45,0.85,-0.85); wheel.rotation.x = Math.PI/2.4; scene.add(wheel);
+  // Seat
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(0.6,0.15,0.5), new THREE.MeshStandardMaterial({ color: 0x2a1a1a }));
+  seat.position.set(0,-0.3,0.2); scene.add(seat);
+
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(40,40), new THREE.MeshStandardMaterial({ color: 0x2a2520 }));
+  ground.rotation.x = -Math.PI/2; ground.position.y = -1; scene.add(ground);
+
+  buildNeighborhoodHouses();
+
+  const phone = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.02,0.16), new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xd4af37, emissiveIntensity: 0.4 }));
+  phone.position.set(0.35,0.95,-1.0); addInteractable(phone, 'phone', 2.0);
+
+  addSpot(-3,3,-6, {x:-3,y:0,z:-6}, 0xffaa55, 1.2);
+  addSpot(3,3,-8, {x:3,y:0,z:-8}, 0xffaa55, 1.0);
+
+  STATE.player.x = 0; STATE.player.z = 0.3; STATE.player.rotY = Math.PI;
+  STATE.inVehicle = true;
+  STATE.totalEvidenceThisLevel = GAME_DATA.level2.phoneFiles.length;
+  updateEvidenceCounter();
+  document.getElementById('level-name').textContent = GAME_DATA.level2.name;
+  document.getElementById('objective-bar').textContent = 'Verifica la información en el celular.';
+  document.getElementById('drive-btn').style.display = 'none';
+  document.getElementById('detection-bar-wrap').style.display = 'none';
+}
+
+function buildNeighborhoodHouses() {
+  const houseMat = new THREE.MeshStandardMaterial({ color: 0x3a2f28, roughness: 0.9 });
+  const roofMat = new THREE.MeshStandardMaterial({ color: 0x2a1f1a, roughness: 1 });
+  const housePositions = [[-3,-6],[3,-7],[-1.5,-9],[2,-10],[-4,-10],[-5,-4],[5,-5]];
+  housePositions.forEach(([x,z]) => {
+    const house = new THREE.Mesh(new THREE.BoxGeometry(1.6,1.4,1.6), houseMat);
+    house.position.set(x,-0.3,z); scene.add(house);
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(1.3,0.7,4), roofMat);
+    roof.position.set(x,0.75,z); roof.rotation.y = Math.PI/4; scene.add(roof);
+    // Windows (lit)
+    const winMat = new THREE.MeshStandardMaterial({ color: 0x443300, emissive: 0xffcc44, emissiveIntensity: Math.random()*0.5+0.1 });
+    const win = new THREE.Mesh(new THREE.PlaneGeometry(0.3,0.3), winMat);
+    win.position.set(x, 0.2, z - 0.81); scene.add(win);
+  });
+  const propMat = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.8 });
+  const container = new THREE.Mesh(new THREE.BoxGeometry(0.8,1.2,1.6), propMat);
+  container.position.set(-4.5,-0.4,-7.5); scene.add(container);
+  const parkedCar = new THREE.Mesh(new THREE.BoxGeometry(1.8,0.7,0.9), new THREE.MeshStandardMaterial({ color: 0x222244 }));
+  parkedCar.position.set(3.5,-0.65,-7); scene.add(parkedCar);
+  // Destination sign
+  const storeSign = new THREE.Mesh(new THREE.BoxGeometry(1.4,0.6,0.1), new THREE.MeshStandardMaterial({ color: 0xff4444, emissive: 0xff2222, emissiveIntensity: 0.6 }));
+  storeSign.position.set(0,1.2,-11.3); scene.add(storeSign);
+  const signLight = new THREE.PointLight(0xff4444, 0.8, 3);
+  signLight.position.set(0,1.2,-11.3); scene.add(signLight);
+}
+
+function buildLevel2_StealthZone() {
+  clearLevel();
+  scene.fog = new THREE.Fog(0x1a1208, 5, 18);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(20,20), new THREE.MeshStandardMaterial({ color: 0x2a2520, roughness: 1 }));
+  ground.rotation.x = -Math.PI/2; ground.receiveShadow = true; scene.add(ground);
+  buildNeighborhoodHouses();
+  addAmbient(0.15, 0x442200);
+  // Street lamps
+  [[0,-3],[-4,-5],[4,-5],[0,-9]].forEach(([x,z]) => {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,2.5,8), new THREE.MeshStandardMaterial({ color: 0x444444 }));
+    post.position.set(x,1.25,z); scene.add(post);
+    const bulb = new THREE.PointLight(0xffaa55, 0.5, 5);
+    bulb.position.set(x,2.6,z); scene.add(bulb);
+  });
+
+  StealthSystem.init(scene, GAME_DATA.level2.stealthSection,
+    () => {
+      showPrompt("⚠ " + GAME_DATA.level2.stealthSection.onDetected);
+      setTimeout(() => { if (!StealthSystem.active) return; StealthSystem.detected = false; }, 2000);
+    },
+    () => {
+      STATE.stealthDestinationReached = true;
+      STATE.inStealthSection = false;
+      document.getElementById('detection-bar-wrap').style.display = 'none';
+      playNarrative(GAME_DATA.toLevel3, () => buildLevel3());
+    }
+  );
+
+  STATE.player.x = 0; STATE.player.z = 0; STATE.player.rotY = Math.PI;
+  STATE.inStealthSection = true; STATE.inVehicle = false;
+  document.getElementById('level-name').textContent = "NIVEL 2 — SIGILO";
+  document.getElementById('objective-bar').textContent = GAME_DATA.level2.stealthSection.objective;
+  document.getElementById('detection-bar-wrap').style.display = 'block';
+}
+
+function buildLevel3() {
+  clearLevel();
+  addAmbient(0.35, 0x5040a0);
+  scene.fog = new THREE.Fog(0x080510, 7, 22);
+
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0x1a1218, roughness: 0.4, metalness: 0.3 });
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(12,12), floorMat);
+  floor.rotation.x = -Math.PI/2; floor.receiveShadow = true; scene.add(floor);
+
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x140d1f, roughness: 0.8 });
+  [[0,3,-6,0], [-6,3,0,Math.PI/2], [6,3,0,-Math.PI/2], [0,3,6,Math.PI]].forEach(([x,y,z,ry]) => {
+    const w = new THREE.Mesh(new THREE.PlaneGeometry(12,6), wallMat);
+    w.position.set(x,y,z); w.rotation.y = ry; scene.add(w);
+  });
+
+  // Luxury desk
+  const deskMat = new THREE.MeshStandardMaterial({ color: 0x1a1010, roughness: 0.3, metalness: 0.5 });
+  const desk = new THREE.Mesh(new THREE.BoxGeometry(2.8,0.1,1.2), deskMat);
+  desk.position.set(0,1,-3.5); desk.castShadow = true; scene.add(desk);
+
+  const monitor = new THREE.Mesh(new THREE.BoxGeometry(0.8,0.5,0.04), new THREE.MeshStandardMaterial({ color: 0x0a0a1a, emissive: 0x3020a0, emissiveIntensity: 1.6 }));
+  monitor.position.set(0,1.55,-3.8); addInteractable(monitor, 'computer', 1.8);
+
+  const phone = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.02,0.16), new THREE.MeshStandardMaterial({ color: 0x111111, emissive: 0xd4af37, emissiveIntensity: 0.4 }));
+  phone.position.set(0.85,1.05,-3.2); addInteractable(phone, 'phone', 1.5);
+
+  // NPC (suspect)
+  const npcMat = new THREE.MeshStandardMaterial({ color: 0x2a2040, roughness: 0.7 });
+  const npcBody = new THREE.Group();
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.25,0.28,1.0,8), npcMat);
+  torso.position.y = 1.4; npcBody.add(torso);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.18,10,10), new THREE.MeshStandardMaterial({ color: 0xb08060 }));
+  head.position.y = 2.05; npcBody.add(head);
+  npcBody.position.set(0.3,0,-4.5);
+  addInteractable(npcBody, 'npc', 2.2);
+
+  // Bookshelf
+  const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.5,2.2,0.3), new THREE.MeshStandardMaterial({ color: 0x1a1010, roughness: 0.6 }));
+  shelf.position.set(-5,1.1,-2); scene.add(shelf);
+  for (let i = 0; i < 6; i++) {
+    const book = new THREE.Mesh(new THREE.BoxGeometry(0.12,0.35,0.22), new THREE.MeshStandardMaterial({ color: [0x3a2020,0x202040,0x203020,0x403020,0x302030,0x204040][i] }));
+    book.position.set(-5+(-0.5+i*0.2), 1.2+Math.floor(i/3)*0.45, -1.88); scene.add(book);
+  }
+
+  addSpot(0,4,-2, {x:0,y:1.5,z:-3.8}, 0x8060d4, 1.6);
+  addSpot(-3,3.5,-1, {x:0.3,y:1,z:-4.5}, 0xd4af37, 0.8);
+
+  STATE.player.x = 0; STATE.player.z = 2; STATE.player.rotY = Math.PI;
+  STATE.totalEvidenceThisLevel = GAME_DATA.level3.computerFiles.length + GAME_DATA.level3.phoneFiles.length;
+  updateEvidenceCounter();
+  document.getElementById('level-name').textContent = GAME_DATA.level3.name;
+  document.getElementById('objective-bar').textContent = GAME_DATA.level3.objective;
+  document.getElementById('drive-btn').style.display = 'none';
+  document.getElementById('detection-bar-wrap').style.display = 'none';
+}
+
+// ============================================================
+// CINEMATIC SYSTEM
+// ============================================================
+const CinematicSystem = {
+  active: false, waypoints: [], currentIndex: 0,
+  holdTimer: 0, onComplete: null, lerpT: 0,
+
+  play(config, onComplete) {
+    this.active = true; this.waypoints = config.waypoints;
+    this.currentIndex = 0; this.holdTimer = 0; this.lerpT = 0;
+    this.onComplete = onComplete; STATE.inCinematic = true;
+    if (config.text) {
+      const b = document.getElementById('cinematic-text-banner');
+      b.textContent = config.text; b.style.display = 'block';
+      setTimeout(() => b.classList.add('visible'), 50);
+    }
+    const first = this.waypoints[0];
+    camera.position.set(...first.pos); camera.lookAt(...first.lookAt);
+  },
+
+  update(delta) {
+    if (!this.active) return;
+    const current = this.waypoints[this.currentIndex];
+    const next = this.waypoints[this.currentIndex + 1];
+    if (!next) {
+      this.holdTimer += delta;
+      if (this.holdTimer >= current.hold) this.finish();
+      return;
+    }
+    this.lerpT += delta / Math.max(current.hold, 0.4);
+    if (this.lerpT >= 1) { this.lerpT = 0; this.currentIndex++; return; }
+    const ease = this.lerpT < 0.5 ? 2*this.lerpT*this.lerpT : 1-Math.pow(-2*this.lerpT+2,2)/2;
+    const a = current.pos, b = next.pos, la = current.lookAt, lb = next.lookAt;
+    camera.position.set(a[0]+(b[0]-a[0])*ease, a[1]+(b[1]-a[1])*ease, a[2]+(b[2]-a[2])*ease);
+    camera.lookAt(la[0]+(lb[0]-la[0])*ease, la[1]+(lb[1]-la[1])*ease, la[2]+(lb[2]-la[2])*ease);
+  },
+
+  finish() {
+    this.active = false; STATE.inCinematic = false;
+    const b = document.getElementById('cinematic-text-banner');
+    b.classList.remove('visible'); setTimeout(() => { b.style.display = 'none'; }, 600);
+    if (this.onComplete) this.onComplete();
+  }
+};
+
+// ============================================================
+// STEALTH SYSTEM
+// ============================================================
+const StealthSystem = {
+  active: false, guardMesh: null, visionConeMesh: null,
+  patrolPoints: [], currentPatrolIndex: 0, patrolHoldTimer: 0,
+  guardSpeed: 1.2, visionRange: 5, visionAngle: 0.6,
+  detectionLevel: 0, detected: false, onDetectedCallback: null,
+  destination: null, onReachDestination: null,
+
+  init(scene, config, onDetected, onReach) {
+    this.active = true; this.patrolPoints = config.guardPatrol;
+    this.visionRange = config.guardVisionRange; this.visionAngle = config.guardVisionAngle;
+    this.currentPatrolIndex = 0; this.patrolHoldTimer = 0;
+    this.detectionLevel = 0; this.detected = false;
+    this.onDetectedCallback = onDetected; this.destination = config.destination;
+    this.onReachDestination = onReach;
+
+    const guardMat = new THREE.MeshStandardMaterial({ color: 0x4a2020, roughness: 0.8 });
+    const body = new THREE.Group();
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.26,1.0,8), guardMat);
+    torso.position.y = 0.9; body.add(torso);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.16,8,8), guardMat);
+    head.position.y = 1.55; body.add(head);
+    body.position.set(this.patrolPoints[0].pos[0], 0, this.patrolPoints[0].pos[2]);
+    scene.add(body); this.guardMesh = body;
+
+    const coneGeo = new THREE.ConeGeometry(this.visionRange * Math.tan(this.visionAngle), this.visionRange, 16, 1, true);
+    const coneMat = new THREE.MeshBasicMaterial({ color: 0xff4444, transparent: true, opacity: 0.12, side: THREE.DoubleSide });
+    const cone = new THREE.Mesh(coneGeo, coneMat);
+    cone.rotation.x = Math.PI/2; cone.position.y = 0.9; cone.position.z = -this.visionRange/2;
+    const coneWrapper = new THREE.Group(); coneWrapper.add(cone);
+    coneWrapper.position.copy(body.position);
+    scene.add(coneWrapper); this.visionConeMesh = coneWrapper;
+  },
+
+  reset() { this.active = false; this.guardMesh = null; this.visionConeMesh = null; this.detectionLevel = 0; this.detected = false; },
+
+  update(delta, playerX, playerZ) {
+    if (!this.active || !this.guardMesh) return;
+    const target = this.patrolPoints[this.currentPatrolIndex];
+    const gx = this.guardMesh.position.x, gz = this.guardMesh.position.z;
+    const dx = target.pos[0]-gx, dz = target.pos[2]-gz;
+    const dist = Math.sqrt(dx*dx+dz*dz);
+    if (dist < 0.15) {
+      this.patrolHoldTimer += delta;
+      if (this.patrolHoldTimer >= target.hold) { this.patrolHoldTimer = 0; this.currentPatrolIndex = (this.currentPatrolIndex+1)%this.patrolPoints.length; }
+    } else {
+      this.guardMesh.position.x += (dx/dist)*this.guardSpeed*delta;
+      this.guardMesh.position.z += (dz/dist)*this.guardSpeed*delta;
+      const fa = Math.atan2(dx,dz);
+      this.guardMesh.rotation.y = fa; this.visionConeMesh.position.copy(this.guardMesh.position);
+      this.visionConeMesh.rotation.y = fa;
+    }
+    const pdx = playerX-this.guardMesh.position.x, pdz = playerZ-this.guardMesh.position.z;
+    const pd = Math.sqrt(pdx*pdx+pdz*pdz);
+    let inCone = false;
+    if (pd < this.visionRange) {
+      const gf = this.guardMesh.rotation.y, ap = Math.atan2(pdx,pdz);
+      let ad = Math.abs(gf-ap); if (ad > Math.PI) ad = 2*Math.PI-ad;
+      if (ad < this.visionAngle) inCone = true;
+    }
+    if (inCone) this.detectionLevel = Math.min(1, this.detectionLevel + delta*0.7);
+    else this.detectionLevel = Math.max(0, this.detectionLevel - delta*0.4);
+    if (this.detectionLevel >= 1 && !this.detected) { this.detected = true; if (this.onDetectedCallback) this.onDetectedCallback(); }
+    if (this.detectionLevel < 0.3 && this.detected) this.detected = false;
+    if (this.destination) {
+      const ddx = playerX-this.destination.pos[0], ddz = playerZ-this.destination.pos[2];
+      if (Math.sqrt(ddx*ddx+ddz*ddz) < 1.2) { this.active = false; if (this.onReachDestination) this.onReachDestination(); }
+    }
+  },
+};
+
+// ============================================================
+// DEDUCTION SYSTEM
+// ============================================================
+const DeductionSystem = {
+  active: false, config: null, selectedClue: null,
+  madeConnections: [], onComplete: null,
+
+  start(config, onComplete) {
+    this.active = true; this.config = config;
+    this.selectedClue = null; this.madeConnections = [];
+    this.onComplete = onComplete;
+    this.renderBoard();
+    document.getElementById('deduction-overlay').style.display = 'flex';
+  },
+
+  renderBoard() {
+    document.getElementById('deduction-title').textContent = this.config.title;
+    const board = document.getElementById('deduction-clues'); board.innerHTML = '';
+    this.config.clues.forEach(clue => {
+      const node = document.createElement('div'); node.className = 'clue-node';
+      node.dataset.id = clue.id; node.textContent = clue.label;
+      if (this.selectedClue === clue.id) node.classList.add('selected');
+      if (this.isClueConnected(clue.id)) node.classList.add('connected');
+      node.addEventListener('click', () => this.handleClueClick(clue.id));
+      board.appendChild(node);
+    });
+    this.renderConnectionLines(); this.updateProgress();
+  },
+
+  isClueConnected(id) { return this.madeConnections.some(p => p.includes(id)); },
+
+  handleClueClick(id) {
+    if (!this.selectedClue) { this.selectedClue = id; this.renderBoard(); return; }
+    if (this.selectedClue === id) { this.selectedClue = null; this.renderBoard(); return; }
+    const pair = [this.selectedClue, id].sort();
+    const already = this.madeConnections.some(p => p[0]===pair[0]&&p[1]===pair[1]);
+    const isCorrect = this.config.correctPairs.some(cp => { const s=[...cp].sort(); return s[0]===pair[0]&&s[1]===pair[1]; });
+    if (!already && isCorrect) { this.madeConnections.push(pair); this.showFeedback('Conexión correcta ✓', true); }
+    else if (!isCorrect) this.showFeedback('Esa conexión no parece relevante', false);
+    this.selectedClue = null; this.renderBoard(); this.checkCompletion();
+  },
+
+  showFeedback(text, success) {
+    const fb = document.getElementById('deduction-feedback');
+    fb.textContent = text; fb.className = success ? 'feedback-success' : 'feedback-fail';
+    setTimeout(() => { fb.textContent = ''; fb.className = ''; }, 1400);
+  },
+
+  renderConnectionLines() {
+    const list = document.getElementById('deduction-connections-list'); list.innerHTML = '';
+    this.madeConnections.forEach(pair => {
+      const la = this.config.clues.find(c=>c.id===pair[0])?.label||pair[0];
+      const lb = this.config.clues.find(c=>c.id===pair[1])?.label||pair[1];
+      const li = document.createElement('div'); li.className = 'connection-line-item';
+      li.textContent = `🔗 ${la}  ↔  ${lb}`; list.appendChild(li);
+    });
+  },
+
+  updateProgress() {
+    document.getElementById('deduction-progress').textContent = `${this.madeConnections.length} / ${this.config.correctPairs.length} conexiones`;
+  },
+
+  checkCompletion() {
+    if (this.madeConnections.length >= this.config.correctPairs.length) {
+      setTimeout(() => {
+        document.getElementById('deduction-conclusion').textContent = this.config.conclusion;
+        document.getElementById('deduction-conclusion').style.display = 'block';
+        document.getElementById('deduction-continue-btn').style.display = 'block';
+      }, 500);
+    }
+  },
+
+  finish() {
+    this.active = false;
+    document.getElementById('deduction-overlay').style.display = 'none';
+    document.getElementById('deduction-conclusion').style.display = 'none';
+    document.getElementById('deduction-continue-btn').style.display = 'none';
+    if (this.onComplete) this.onComplete();
+  },
+};
+
+document.getElementById('deduction-continue-btn').addEventListener('click', () => DeductionSystem.finish());
+
+// ============================================================
+// DIALOGUE SYSTEM
+// ============================================================
+const DialogueSystem = {
+  active: false, config: null, currentNodeId: 'start', onComplete: null,
+
+  start(config, onComplete) {
+    this.active = true; this.config = config;
+    this.currentNodeId = 'start'; this.onComplete = onComplete;
+    this.renderUI();
+    document.getElementById('dialogue-overlay').style.display = 'flex';
+  },
+
+  renderUI() {
+    const node = this.config.nodes[this.currentNodeId];
+    document.getElementById('dialogue-npc-name').textContent = this.config.npcName;
+    document.getElementById('dialogue-npc-line').textContent = node.npcLine;
+    const opts = document.getElementById('dialogue-options'); opts.innerHTML = '';
+    if (node.isEnding || node.options.length === 0) {
+      const btn = document.createElement('button'); btn.className = 'dialogue-option-btn dialogue-end-btn';
+      btn.textContent = '[ Finalizar interrogatorio ]';
+      btn.addEventListener('click', () => this.finish()); opts.appendChild(btn); return;
+    }
+    node.options.forEach(opt => {
+      const btn = document.createElement('button'); btn.className = 'dialogue-option-btn';
+      btn.textContent = opt.text;
+      btn.addEventListener('click', () => { this.currentNodeId = opt.next; this.renderUI(); });
+      opts.appendChild(btn);
+    });
+  },
+
+  finish() {
+    this.active = false;
+    document.getElementById('dialogue-overlay').style.display = 'none';
+    if (this.onComplete) this.onComplete();
+  },
+};
+
+// ============================================================
+// NARRATIVE
+// ============================================================
+let narrativeQueue = [], narrativeCallback = null, narrativeIndex = 0;
+
+function playNarrative(slides, onDone) {
+  narrativeQueue = slides; narrativeCallback = onDone; narrativeIndex = 0;
+  showNextNarrativeSlide();
+}
+
+function showNextNarrativeSlide() {
+  if (narrativeIndex >= narrativeQueue.length) {
+    const ns = document.getElementById('narrative-screen');
+    ns.classList.remove('visible');
+    setTimeout(() => { if (narrativeCallback) narrativeCallback(); }, 700);
+    return;
+  }
+  const slide = narrativeQueue[narrativeIndex++];
+  const ns = document.getElementById('narrative-screen');
+  ns.querySelector('#narrative-text').textContent = slide.text;
+  ns.querySelector('#narrative-sub').textContent = slide.sub || '';
+  ns.classList.add('visible');
+  setTimeout(() => {
+    ns.classList.remove('visible');
+    setTimeout(showNextNarrativeSlide, 700);
+  }, slide.sub ? 2400 : 1800);
+}
+
+// ============================================================
+// FILE VIEWER
+// ============================================================
+function openFiles(files, panelTitle) {
+  document.getElementById('file-panel-title').textContent = panelTitle;
+  const list = document.getElementById('file-list'); list.innerHTML = '';
+  files.forEach(file => {
+    const item = document.createElement('div');
+    item.className = 'file-item' + (STATE.verifiedEvidence.has(file.id) ? ' verified' : '');
+    item.innerHTML = `
+      <div class="file-item-header">
+        <span class="file-tag">${file.tagLabel}</span>
+        <span class="file-name">${file.title}</span>
+      </div>
+      <div class="file-meta">${file.meta}</div>
+      <div class="file-detail">${file.detail}</div>`;
+    item.addEventListener('click', () => {
+      item.classList.toggle('expanded');
+      if (!STATE.verifiedEvidence.has(file.id)) {
+        STATE.verifiedEvidence.add(file.id);
+        if (file.clueId) STATE.verifiedEvidence.add(file.clueId);
+        item.classList.add('verified');
+        updateEvidenceCounter();
+        checkEvidenceComplete();
+      }
+    });
+    list.appendChild(item);
+  });
+  document.getElementById('file-overlay').classList.add('open');
+  STATE.inDevice = true;
+}
+
+document.getElementById('file-close-btn').addEventListener('click', () => {
+  document.getElementById('file-overlay').classList.remove('open');
+  STATE.inDevice = false;
+});
+
+function updateEvidenceCounter() {
+  const verified = [...STATE.verifiedEvidence].filter(id => !id.startsWith('clue_') && !id.startsWith('l3_clue_')).length;
+  document.getElementById('evidence-counter').textContent = `EVIDENCIA ${verified}/${STATE.totalEvidenceThisLevel}`;
+}
+
+function checkEvidenceComplete() {
+  const relevantIds = getAllLevelEvidenceIds();
+  const allVerified = relevantIds.every(id => STATE.verifiedEvidence.has(id));
+  if (!allVerified) return;
+  if (STATE.currentLevel === 'level1') {
+    STATE.deductionUnlocked = true;
+    showPrompt('Pizarra de investigación desbloqueada — ve a la pizarra');
+  } else if (STATE.currentLevel === 'level2_car') {
+    document.getElementById('drive-btn').style.display = 'block';
+  } else if (STATE.currentLevel === 'level3') {
+    showPrompt('Evidencia completa — habla con el sospechoso');
+  }
+}
+
+function getAllLevelEvidenceIds() {
+  if (STATE.currentLevel === 'level1') return [...GAME_DATA.level1.computerFiles, ...GAME_DATA.level1.phoneFiles].map(f=>f.id);
+  if (STATE.currentLevel === 'level2_car') return GAME_DATA.level2.phoneFiles.map(f=>f.id);
+  if (STATE.currentLevel === 'level3') return [...GAME_DATA.level3.computerFiles, ...GAME_DATA.level3.phoneFiles].map(f=>f.id);
+  return [];
+}
+
+// ============================================================
+// INTERACTION
+// ============================================================
+function handleInteract() {
+  if (STATE.inDevice || STATE.inCinematic || STATE.inDeduction || STATE.inDialogue) return;
+  const near = STATE.nearInteractable;
+  if (!near) return;
+
+  const type = near.userData.type;
+
+  if (type === 'computer') {
+    const files = STATE.currentLevel === 'level3' ? GAME_DATA.level3.computerFiles : GAME_DATA.level1.computerFiles;
+    openFiles(files, 'ARCHIVOS — COMPUTADOR');
+  }
+  else if (type === 'phone') {
+    const files = STATE.currentLevel === 'level2_car' ? GAME_DATA.level2.phoneFiles :
+                  STATE.currentLevel === 'level3' ? GAME_DATA.level3.phoneFiles : GAME_DATA.level1.phoneFiles;
+    openFiles(files, 'ARCHIVOS — CELULAR');
+  }
+  else if (type === 'deductionBoard') {
+    if (!STATE.deductionUnlocked) { showPrompt('Revisa todos los archivos primero'); return; }
+    STATE.inDeduction = true;
+    DeductionSystem.start(GAME_DATA.level1.deductionBoard, () => {
+      STATE.inDeduction = false; STATE.exitReady = true;
+      showPrompt('Investigación completa — ve hacia la salida');
+    });
+  }
+  else if (type === 'exit') {
+    if (!STATE.exitReady) { showPrompt('Completa la investigación primero'); return; }
+    playNarrative(GAME_DATA.toLevel2, () => {
+      STATE.currentLevel = 'level2_car'; buildLevel2_Car();
+    });
+  }
+  else if (type === 'npc') {
+    const allVerified = getAllLevelEvidenceIds().every(id => STATE.verifiedEvidence.has(id));
+    if (!allVerified) { showPrompt('Revisa toda la evidencia antes de confrontarlo'); return; }
+    STATE.inDialogue = true;
+    DialogueSystem.start(GAME_DATA.level3.interrogation, () => {
+      STATE.inDialogue = false;
+      playNarrative(GAME_DATA.ending, () => {
+        document.getElementById('level-name').textContent = '';
+        document.getElementById('objective-bar').textContent = '';
+        document.getElementById('evidence-counter').textContent = '';
+      });
+    });
+  }
+}
+
+// ============================================================
+// INPUT
+// ============================================================
+const keys = {};
+let mouseDX = 0, mouseLocked = false;
+
+document.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'KeyE') handleInteract();
+  if (e.code === 'Escape') {
+    document.getElementById('file-overlay').classList.remove('open');
+    STATE.inDevice = false;
+  }
+});
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+canvas.addEventListener('click', () => {
+  if (!STATE.inDevice && !STATE.inCinematic && !STATE.inDeduction && !STATE.inDialogue) {
+    canvas.requestPointerLock();
+  }
+});
+document.addEventListener('pointerlockchange', () => {
+  mouseLocked = document.pointerLockElement === canvas;
+});
+document.addEventListener('mousemove', e => {
+  if (!mouseLocked) return;
+  STATE.player.rotY -= e.movementX * 0.0022;
+  mouseDX = e.movementX;
+});
+
+// Mobile
+let joyActive = false, joyOrigin = {x:0,y:0}, joyDelta = {x:0,y:0};
+const joyZone = document.getElementById('joystick-zone');
+const joyThumb = document.getElementById('joystick-thumb');
+joyZone.addEventListener('touchstart', e => { e.preventDefault(); const t=e.touches[0]; joyActive=true; joyOrigin={x:t.clientX,y:t.clientY}; }, {passive:false});
+joyZone.addEventListener('touchmove', e => { e.preventDefault(); const t=e.touches[0]; joyDelta={x:t.clientX-joyOrigin.x, y:t.clientY-joyOrigin.y}; const r=50; const mx=Math.max(-r,Math.min(r,joyDelta.x)), my=Math.max(-r,Math.min(r,joyDelta.y)); joyThumb.style.transform=`translate(calc(-50% + ${mx}px), calc(-50% + ${my}px))`; }, {passive:false});
+joyZone.addEventListener('touchend', () => { joyActive=false; joyDelta={x:0,y:0}; joyThumb.style.transform='translate(-50%,-50%)'; });
+document.getElementById('mobile-interact-btn').addEventListener('touchstart', e => { e.preventDefault(); handleInteract(); }, {passive:false});
+
+let lookDX = 0, lookActive = false, lookLast = 0;
+const lookZone = document.getElementById('look-zone');
+lookZone.addEventListener('touchstart', e => { lookActive=true; lookLast=e.touches[0].clientX; });
+lookZone.addEventListener('touchmove', e => { if (!lookActive) return; const dx=e.touches[0].clientX-lookLast; lookLast=e.touches[0].clientX; STATE.player.rotY -= dx*0.003; });
+lookZone.addEventListener('touchend', () => { lookActive=false; });
+
+document.getElementById('drive-btn').addEventListener('click', () => {
+  STATE.currentLevel = 'level2_stealth';
+  buildLevel2_StealthZone();
+});
+
+// ============================================================
+// PROMPT
+// ============================================================
+let promptTimeout;
+function showPrompt(text) {
+  const p = document.getElementById('interact-prompt');
+  p.textContent = text; p.classList.add('visible');
+  clearTimeout(promptTimeout);
+  promptTimeout = setTimeout(() => p.classList.remove('visible'), 2800);
+}
+
+// ============================================================
+// GAME LOOP
+// ============================================================
+let lastTime = 0;
+
+function gameLoop(time) {
+  requestAnimationFrame(gameLoop);
+  const delta = Math.min((time - lastTime) / 1000, 0.05);
+  lastTime = time;
+
+  if (STATE.inCinematic) { CinematicSystem.update(delta); renderer.render(scene, camera); return; }
+  if (STATE.inDevice || STATE.inDeduction || STATE.inDialogue) { renderer.render(scene, camera); return; }
+
+  // ── Movement ──
+  let mx = 0, mz = 0;
+  if (keys['KeyW'] || keys['ArrowUp'])    { mx += Math.sin(STATE.player.rotY); mz += Math.cos(STATE.player.rotY); }
+  if (keys['KeyS'] || keys['ArrowDown'])  { mx -= Math.sin(STATE.player.rotY); mz -= Math.cos(STATE.player.rotY); }
+  if (keys['KeyA'] || keys['ArrowLeft'])  { mx += Math.sin(STATE.player.rotY - Math.PI/2); mz += Math.cos(STATE.player.rotY - Math.PI/2); }
+  if (keys['KeyD'] || keys['ArrowRight']) { mx += Math.sin(STATE.player.rotY + Math.PI/2); mz += Math.cos(STATE.player.rotY + Math.PI/2); }
+
+  if (joyActive) {
+    const jx = joyDelta.x/50, jy = joyDelta.y/50;
+    mx += Math.sin(STATE.player.rotY)*(-jy) + Math.sin(STATE.player.rotY - Math.PI/2)*(-jx);
+    mz += Math.cos(STATE.player.rotY)*(-jy) + Math.cos(STATE.player.rotY - Math.PI/2)*(-jx);
+  }
+
+  const len = Math.sqrt(mx*mx+mz*mz);
+  const isMoving = len > 0.01;
+  if (isMoving) {
+    const spd = STATE.player.speed * delta * (STATE.inStealthSection ? 0.7 : 1.0);
+    STATE.player.x += (mx/len)*spd;
+    STATE.player.z += (mz/len)*spd;
+  }
+
+  animateHands(delta, isMoving);
+
+  // Camera follow
+  if (!STATE.inVehicle) {
+    camera.position.set(STATE.player.x, 1.65, STATE.player.z);
+    camera.rotation.set(0, STATE.player.rotY, 0);
+  }
+
+  // ── Interactable proximity ──
+  let closest = null, closestDist = Infinity;
+  STATE.interactables.forEach(obj => {
+    const dx = obj.position.x - STATE.player.x;
+    const dz = obj.position.z - STATE.player.z;
+    const d = Math.sqrt(dx*dx+dz*dz);
+    if (d < obj.userData.radius && d < closestDist) { closestDist = d; closest = obj; }
+  });
+  STATE.nearInteractable = closest;
+  const prompt = document.getElementById('interact-prompt');
+  if (closest && !STATE.inDevice) {
+    const typeLabels = { computer: '[E] Revisar computador', phone: '[E] Revisar celular', deductionBoard: STATE.deductionUnlocked ? '[E] Pizarra de investigación' : '[E] Pizarra (bloqueada)', exit: STATE.exitReady ? '[E] Salir' : '[E] Salida (bloqueada)', npc: '[E] Confrontar' };
+    prompt.textContent = typeLabels[closest.userData.type] || '[E] Interactuar';
+    if (!prompt.classList.contains('visible')) prompt.classList.add('visible');
+  } else if (!STATE.inDevice) {
+    prompt.classList.remove('visible');
+  }
+
+  // ── Stealth ──
+  if (STATE.inStealthSection && StealthSystem.active) {
+    StealthSystem.update(delta, STATE.player.x, STATE.player.z);
+    const dl = StealthSystem.getDetectionLevel ? StealthSystem.getDetectionLevel() : StealthSystem.detectionLevel;
+    document.getElementById('detection-bar-fill').style.width = (dl*100)+'%';
+    document.getElementById('detection-bar-fill').style.background = dl > 0.6 ? '#ff3322' : '#ff6644';
+  }
+
+  renderer.render(scene, camera);
+}
+
+// ============================================================
+// START
+// ============================================================
+function startGame() {
+  STATE.currentLevel = 'level1';
+  buildLevel1();
+  CinematicSystem.play(GAME_DATA.level1.openingCinematic, () => {});
+  requestAnimationFrame(gameLoop);
+}
+
+playNarrative(GAME_DATA.intro, startGame);
+</script>
+</body>
+</html>
